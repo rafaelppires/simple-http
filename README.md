@@ -1,2 +1,2 @@
 # simple-http
-http
+lightweight http library
