@@ -13,16 +13,15 @@ std::string StringUtils::MapJoiner::join(const KeyValueMap &map) {
 //------------------------------------------------------------------------------
 std::vector<std::string> StringUtils::split(const std::string &str,
                                             const std::string &sep) {
-    char *cstr = new char[str.size()+1];
+    char cstr[str.size()+1], *ctx;
     memcpy(cstr, str.c_str(), str.size()+1);
     char *current;
     std::vector<std::string> arr;
-    current = strtok(cstr, sep.c_str());
+    current = strtok_r(cstr, sep.c_str(),&ctx);
     while (current != NULL) {
         arr.push_back(current);
-        current = strtok(NULL, sep.c_str());
+        current = strtok_r(NULL, sep.c_str(),&ctx);
     }
-    delete[] cstr;
     return arr;
 }
 
