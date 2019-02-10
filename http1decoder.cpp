@@ -16,11 +16,13 @@ Http1Decoder::Http1Decoder(Http1Decoder&& h)
     : content_len_(h.content_len_),
       body_mustnot_(h.body_mustnot_),
       head_(h.head_),
-      request_(h.request_),
+      is_request_(h.is_request_),
       decoded_messages_(h.decoded_messages_) {
     {
         std::unique_lock<std::recursive_mutex> lock(h.buffer_mutex_);
         buffer_ = std::move(h.buffer_);
+        request_ = std::move(h.request_);
+        response_ = std::move(h.response_);
         s_ = h.s_;
     }
     {
@@ -46,6 +48,8 @@ Http1Decoder& Http1Decoder::operator=(Http1Decoder&& h) {
                 rhs_lock(h.buffer_mutex_, std::defer_lock);
             std::lock(lhs_lock, rhs_lock);
             buffer_ = std::move(h.buffer_);
+            request_ = std::move(h.request_);
+            response_ = std::move(h.response_);
             s_ = h.s_;
         }
         {
@@ -65,7 +69,7 @@ Http1Decoder& Http1Decoder::operator=(Http1Decoder&& h) {
         content_len_ = h.content_len_;
         body_mustnot_ = h.body_mustnot_;
         head_ = h.head_;
-        request_ = h.request_;
+        is_request_ = h.is_request_;
         decoded_messages_ = h.decoded_messages_;
 
         h.s_ = START;
@@ -139,20 +143,14 @@ bool Http1Decoder::start_state() {
 
     size_t headerstart;
     StatusLine sl = StatusLine::parse(buffer_, &headerstart);
-    request_ = sl.request_;
+    is_request_ = sl.request_;
 
-    if (request_) {
-        std::lock_guard<std::mutex> lock(request_mutex_);
-        requestqueue_.emplace(requestqueue_.end());
-        RequestBuilder& request = requestqueue_.back();
-        request.protocol(sl.protocol_)
+    if (is_request_) {
+        request_.protocol(sl.protocol_)
             .method(sl.message_)
             .url(UrlBuilder::parse("http://0:0" + sl.uri_));
     } else {
-        std::lock_guard<std::mutex> lock(response_mutex_);
-        responsequeue_.emplace(responsequeue_.end());
-        ResponseBuilder& response = responsequeue_.back();
-        response.protocol(sl.protocol_).code(sl.code_).message(sl.message_);
+        response_.protocol(sl.protocol_).code(sl.code_).message(sl.message_);
         body_mustnot_ = head_ || (sl.code_ >= 100 && sl.code_ < 199) ||
                         sl.code_ == 204 || sl.code_ == 304;
     }
@@ -170,19 +168,9 @@ bool Http1Decoder::header_state() {
         return true;  // incomplete, wait more data
     }
 
-    std::lock_guard<std::mutex> lock(request_ ? request_mutex_
-                                              : response_mutex_);
-
-    if (request_ && requestqueue_.empty() ||
-        !request_ && responsequeue_.empty()) {
-        printf("It`s a %s. And queue is empty :(  Noooooooooooooooo\n",
-               request_ ? "request" : "response");
-        exit(666);  // This is Lucifer's interference on multithreaded code
-    }
-
-    ReqRepBuilder& reqrep =
-        request_ ? reinterpret_cast<ReqRepBuilder&>(requestqueue_.back())
-                 : reinterpret_cast<ReqRepBuilder&>(responsequeue_.back());
+    ReqRepBuilder& reqrep = is_request_
+                                ? reinterpret_cast<ReqRepBuilder&>(request_)
+                                : reinterpret_cast<ReqRepBuilder&>(response_);
 
     reqrep.headers(HeadersBuilder::parse(buffer_.substr(0, headerend)));
     buffer_.erase(0, headerend + 4);
@@ -216,12 +204,9 @@ reqrep.getHeaderValue(HttpStrings::transfer_enc).c_str());
 //------------------------------------------------------------------------------
 bool Http1Decoder::body_state() {
     // printf("[%lx] body_state", this);
-    std::lock_guard<std::mutex> lock(request_ ? request_mutex_
-                                              : response_mutex_);
-
-    ReqRepBuilder& reqrep =
-        request_ ? reinterpret_cast<ReqRepBuilder&>(requestqueue_.back())
-                 : reinterpret_cast<ReqRepBuilder&>(responsequeue_.back());
+    ReqRepBuilder& reqrep = is_request_
+                                ? reinterpret_cast<ReqRepBuilder&>(request_)
+                                : reinterpret_cast<ReqRepBuilder&>(response_);
 
     if (content_len_ < 0) {
         std::string lenstr;
@@ -273,9 +258,7 @@ bool Http1Decoder::chunked_state() {
 
     std::string chunk = buffer_.substr(0, pos);
     if (content_len_ >= chunk.size()) {
-        std::lock_guard<std::mutex> lock(response_mutex_);
-        ResponseBuilder& response = responsequeue_.back();
-        response.appendBody(chunk);
+        response_.appendBody(chunk);
         buffer_.erase(0, pos + crlf.size());
         content_len_ -= chunk.size();
         if (!buffer_.empty()) addChunk("");
@@ -285,6 +268,15 @@ bool Http1Decoder::chunked_state() {
 
 //------------------------------------------------------------------------------
 void Http1Decoder::reset() {
+    if (is_request_) {
+        std::lock_guard<std::mutex> lock(request_mutex_);
+        requestqueue_.emplace();
+        std::swap(request_, requestqueue_.back());
+    } else {
+        std::lock_guard<std::mutex> lock(response_mutex_);
+        responsequeue_.emplace();
+        std::swap(response_, responsequeue_.back());
+    }
     ++decoded_messages_;
     head_ = false;
     body_mustnot_ = false;
@@ -292,34 +284,12 @@ void Http1Decoder::reset() {
 }
 
 //------------------------------------------------------------------------------
-bool Http1Decoder::responseReady() {
-    if (responsequeue_.size() > 1)
-        return true;
-    else if (!responsequeue_.empty()) {
-        std::lock_guard<std::recursive_mutex> lock(buffer_mutex_);
-        return s_ == START;
-    }
-    return false;
-}
-
-//------------------------------------------------------------------------------
-bool Http1Decoder::requestReady() {
-    if (requestqueue_.size() > 1)
-        return true;
-    else if (!requestqueue_.empty()) {
-        std::lock_guard<std::recursive_mutex> lock(buffer_mutex_);
-        return s_ == START;
-    }
-    return false;
-}
-
-//------------------------------------------------------------------------------
 bool Http1Decoder::getResponse(Response& rep) {
     std::lock_guard<std::mutex> lock(response_mutex_);
-    if (responseReady()) {
+    if (!responsequeue_.empty()) {
         ResponseBuilder ret;
         std::swap(ret, responsequeue_.front());
-        responsequeue_.pop_front();
+        responsequeue_.pop();
         rep = ret.build();
         return true;
     }
@@ -329,10 +299,10 @@ bool Http1Decoder::getResponse(Response& rep) {
 //------------------------------------------------------------------------------
 bool Http1Decoder::getRequest(Request& req) {
     std::lock_guard<std::mutex> lock(request_mutex_);
-    if (requestReady()) {
+    if (!requestqueue_.empty()) {
         RequestBuilder ret;
         std::swap(ret, requestqueue_.front());
-        requestqueue_.pop_front();
+        requestqueue_.pop();
         req = ret.build();
         return true;
     }

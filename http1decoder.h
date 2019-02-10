@@ -4,7 +4,7 @@
 #include <httpresponse.h>
 #include <httprequest.h>
 #include <tcpconnection.h>
-#include <deque>
+#include <queue>
 #include <mutex>
 #include <string>
 
@@ -23,9 +23,6 @@ class Http1Decoder {
    private:
     enum State { START, HEADER, BODY, CHUNKED };
 
-    bool responseReady();
-    bool requestReady();
-
     bool start_state();
     bool header_state();
     bool body_state();
@@ -35,14 +32,16 @@ class Http1Decoder {
 
     State s_;
     std::string buffer_;
-    std::recursive_mutex buffer_mutex_;  // crit. section is both s_ and buffer_
+    RequestBuilder  request_;
+    ResponseBuilder response_;
+    std::recursive_mutex buffer_mutex_;  // crit. section is object state 
 
-    std::deque<ResponseBuilder> responsequeue_;
-    std::deque<RequestBuilder> requestqueue_;
+    std::queue<ResponseBuilder> responsequeue_;
+    std::queue<RequestBuilder> requestqueue_;
     std::mutex request_mutex_, response_mutex_;  // one per queue
 
     int content_len_;
-    bool body_mustnot_, head_, request_;
+    bool body_mustnot_, head_, is_request_;
     size_t decoded_messages_;
 };
 
