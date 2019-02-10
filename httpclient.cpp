@@ -46,6 +46,7 @@ Response Connection::requestReply(const Request &r) {
     if (connection_->send(msg.data(), msg.size()) < 0)
         throw std::runtime_error("send: error " + std::to_string(errno));
 
+    Response ret;
     do {
         char buffer[1024] = {0};
         int len = connection_->recv(buffer, sizeof(buffer));
@@ -55,9 +56,9 @@ Response Connection::requestReply(const Request &r) {
             throw std::runtime_error("remote: closed connection ");
         }
         decoder_.addChunk(std::string(buffer, len));
-    } while (!decoder_.responseReady());
+    } while (!decoder_.getResponse(ret));
 
-    return decoder_.getResponse();
+    return ret;
 }
 
 //------------------------------------------------------------------------------
