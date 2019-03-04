@@ -8,7 +8,7 @@
 //------------------------------------------------------------------------------
 class Method {
    public:
-    enum Methods { HEAD, PUT, POST };
+    enum Methods { HEAD, PUT, POST, DELETE };
     Method(Methods m) : m_(m) {}
     operator Methods() { return m_; }
     std::string toString() {
@@ -19,6 +19,8 @@ class Method {
                 return "PUT";
             case POST:
                 return "POST";
+            case DELETE:
+                return "DELETE";
         };
     }
 

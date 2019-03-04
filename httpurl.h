@@ -31,10 +31,11 @@ class HttpUrl {
     std::string encodedQuery() const;
     std::string baseUrl() const;
     std::string toString() const { return url_; }
+    std::vector<std::string> getPathSegments() const;
     bool isHttps() const { return scheme_ == "https"; }
     int port() const { return port_; }
     std::string host() const { return host_; }
-    UrlBuilder newBuilder();
+    UrlBuilder newBuilder() const;
 
     static HttpUrl parse(const std::string &endpoint);
 

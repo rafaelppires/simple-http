@@ -67,8 +67,7 @@ HttpUrl HttpUrl::parse(const std::string &endpoint) {
 //------------------------------------------------------------------------------
 std::string HttpUrl::encodedPath() const {
     size_t pos = url_.find("/", scheme_.size() + 3);
-    if (pos == std::string::npos) 
-        return "";
+    if (pos == std::string::npos) return "";
     return url_.substr(pos);
 }
 
@@ -78,10 +77,20 @@ std::string HttpUrl::baseUrl() const {
 }
 
 //------------------------------------------------------------------------------
+std::vector<std::string> HttpUrl::getPathSegments() const {
+    std::vector<std::string> empty;
+    size_t pos1 = url_.find(host_), pos2;
+    if (pos1 == std::string::npos) return empty;
+    pos2 = url_.substr(pos1 + host_.size()).find("/");
+    if (pos2 == std::string::npos) return empty;
+    return split(url_.substr(pos1 + pos2 + host_.size() + 1), "/");
+}
+
+//------------------------------------------------------------------------------
 std::string HttpUrl::encodedQuery() const { return ""; }
 
 //------------------------------------------------------------------------------
-UrlBuilder HttpUrl::newBuilder() {
+UrlBuilder HttpUrl::newBuilder() const {
     UrlBuilder ret;
     ret.host(host_).scheme(scheme_).port(
         port_ != UrlBuilder::defaultPort(scheme_) ? port_ : -1);
@@ -94,9 +103,7 @@ UrlBuilder HttpUrl::newBuilder() {
 UrlBuilder::UrlBuilder() : port_(-1) { path_segments_.push_back(""); }
 
 //------------------------------------------------------------------------------
-UrlBuilder::UrlBuilder(const HttpUrl&u) {
-    *this = parse(u.toString());
-}
+UrlBuilder::UrlBuilder(const HttpUrl &u) { *this = parse(u.toString()); }
 
 //------------------------------------------------------------------------------
 std::string UrlBuilder::toString() const {
@@ -114,7 +121,7 @@ std::string UrlBuilder::toString() const {
     for (const auto &seg : path_segments_) ret += "/" + seg;
     if (!encoded_query_params_.empty()) {
         ret += '?';
-        for (const auto &kv: encoded_query_params_) {
+        for (const auto &kv : encoded_query_params_) {
             ret += kv.first + '=' + kv.second + '&';
         }
         ret.pop_back();
@@ -153,7 +160,7 @@ UrlBuilder UrlBuilder::parse(const std::string &input) {
     auto slices = split(input, "/");
     if (slices.empty()) return ret;
     int pos = 0;
-    if (input.find("://") != std::string::npos ) {
+    if (input.find("://") != std::string::npos) {
         ret.scheme_ = slices[pos].substr(pos, slices[pos].size() - 1);
         if (slices[pos] != "http:" && slices[pos] != "https:") {
             throw std::invalid_argument(
@@ -167,7 +174,7 @@ UrlBuilder UrlBuilder::parse(const std::string &input) {
                 throw std::invalid_argument("No hostname");
             } else {
                 ret.host(endpoint_slices[0]);
-                if (endpoint_slices.size() > 1) // else standard port
+                if (endpoint_slices.size() > 1)  // else standard port
                     ret.port(std::stoi(endpoint_slices[1]));
             }
             ++pos;
@@ -176,10 +183,9 @@ UrlBuilder UrlBuilder::parse(const std::string &input) {
         }
     }
 
-    if( pos < slices.size() )
-        ret.path_segments_.clear();
+    if (pos < slices.size()) ret.path_segments_.clear();
 
-    for(; pos < slices.size(); ++pos)
+    for (; pos < slices.size(); ++pos)
         ret.path_segments_.push_back(slices[pos]);
 
     return ret;
@@ -187,7 +193,7 @@ UrlBuilder UrlBuilder::parse(const std::string &input) {
 
 //------------------------------------------------------------------------------
 UrlBuilder &UrlBuilder::addEncodedQueryParameter(const std::string &key,
-                                          const std::string &value) {
+                                                 const std::string &value) {
     encoded_query_params_.push_back(std::make_pair(key, value));
     return *this;
 }
@@ -206,8 +212,7 @@ HttpUrl UrlBuilder::build() {
 }
 
 //------------------------------------------------------------------------------
-void UrlBuilder::url(const HttpUrl &url) {
-}
+void UrlBuilder::url(const HttpUrl &url) {}
 
 //------------------------------------------------------------------------------
 void UrlBuilder::addPathSegment(const std::string &ps) {
@@ -217,9 +222,8 @@ void UrlBuilder::addPathSegment(const std::string &ps) {
 //------------------------------------------------------------------------------
 void UrlBuilder::addEncodedPathSegment(const std::string &ps) {
     auto &l = path_segments_;
-    //l.insert(l.begin() + (l.empty() ? 0 : l.size() - 1), ps);
-    if( l.size() == 1 && l.front() == "" )
-        l.clear();
+    // l.insert(l.begin() + (l.empty() ? 0 : l.size() - 1), ps);
+    if (l.size() == 1 && l.front() == "") l.clear();
     l.push_back(ps);
 }
 
