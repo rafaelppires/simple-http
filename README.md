@@ -1,5 +1,5 @@
 # simple-http
-lightweight http library
+Lightweight http library
 
 ## License
 

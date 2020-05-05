@@ -6,7 +6,7 @@ run: test
 	valgrind --leak-check=full ./test
 
 clean:
-	rm test
+	rm -f test
 
 .PHONY: test run clean
 
